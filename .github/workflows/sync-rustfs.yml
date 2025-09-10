@@ -37,12 +37,16 @@ jobs:
             exit 1
           fi
           
+          echo "RUSTFS_ENDPOINT: $RUSTFS_ENDPOINT"
+          echo "RUSTFS_BUCKET: $RUSTFS_BUCKET"
+          
           # Function to upload a file to rustfs using AWS4-HMAC-SHA256 signature
           upload_file() {
             local file_path="$1"
             local file_name=$(basename "$file_path")
             
             echo "Uploading $file_path to rustfs bucket $RUSTFS_BUCKET"
+            echo "File name: $file_name"
             
             # Get file content and calculate SHA256
             content_sha256=$(openssl sha256 -hex < "$file_path" | cut -d ' ' -f 2)
@@ -53,6 +57,9 @@ jobs:
             amz_date=$(date -u +"%Y%m%dT%H%M%SZ")
             date_stamp=$(date -u +"%Y%m%d")
             
+            # Extract host from clean endpoint (remove protocol and trailing slash)
+            host=$(echo "$RUSTFS_ENDPOINT" | sed 's|^https://||' | sed 's|^http://||' | sed 's|/$||' | cut -d'/' -f1)
+            
             # AWS4 signature calculation
             region="cn-east-1"
             service="s3"
@@ -62,7 +69,7 @@ jobs:
             canonical_uri="/$RUSTFS_BUCKET/$file_name"
             canonical_query_string=""
             # Note: Each header must be on its own line, and the whole block must end with a newline
-            canonical_headers="content-length:$content_length\ncontent-type:$content_type\nhost:$(echo $RUSTFS_ENDPOINT | sed 's|http://||' | sed 's|https://||')\nx-amz-content-sha256:$content_sha256\nx-amz-date:$amz_date\n"
+            canonical_headers="content-length:$content_length\ncontent-type:$content_type\nhost:$host\nx-amz-content-sha256:$content_sha256\nx-amz-date:$amz_date\n"
             signed_headers="content-length;content-type;host;x-amz-content-sha256;x-amz-date"
             canonical_request="PUT\n$canonical_uri\n$canonical_query_string\n$canonical_headers\n\n$signed_headers\n$content_sha256"
             
@@ -80,9 +87,18 @@ jobs:
             # Create authorization header
             authorization_header="$algorithm Credential=$RUSTFS_ACCESS_KEY/$credential_scope, SignedHeaders=$signed_headers, Signature=$signature"
             
+            # Construct the proper URL
+            # Remove trailing slash from endpoint if present
+            clean_endpoint=$(echo "$RUSTFS_ENDPOINT" | sed 's|/$||')
+            upload_url="$clean_endpoint/$RUSTFS_BUCKET/$file_name"
+            
+            echo "Host: $host"
+            echo "Clean endpoint: $clean_endpoint"
+            echo "Upload URL: $upload_url"
+            
             # Upload file using curl with AWS4 signature
             response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.txt \
-              --location --request PUT "$RUSTFS_ENDPOINT/$RUSTFS_BUCKET/$file_name" \
+              --location --request PUT "$upload_url" \
               --header "Content-Type: $content_type" \
               --header "X-Amz-Content-Sha256: $content_sha256" \
               --header "X-Amz-Date: $amz_date" \
