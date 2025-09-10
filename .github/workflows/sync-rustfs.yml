@@ -21,54 +21,87 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y curl jq openssl
+          sudo apt-get install -y curl jq openssl xxd
       
       - name: Sync files to rustfs
         env:
           RUSTFS_ENDPOINT: ${{ secrets.RUSTFS_ENDPOINT }}
           RUSTFS_ACCESS_KEY: ${{ secrets.RUSTFS_ACCESS_KEY }}
           RUSTFS_SECRET_KEY: ${{ secrets.RUSTFS_SECRET_KEY }}
-          RUSTFS_TOKEN: ${{ secrets.RUSTFS_TOKEN }}
           RUSTFS_BUCKET: "itc"
         run: |
           # Check if required secrets are available
-          if [ -z "$RUSTFS_ENDPOINT" ]; then
-            echo "Missing required secret: RUSTFS_ENDPOINT"
+          if [ -z "$RUSTFS_ENDPOINT" ] || [ -z "$RUSTFS_ACCESS_KEY" ] || [ -z "$RUSTFS_SECRET_KEY" ]; then
+            echo "Missing required secrets for rustfs authentication"
+            echo "Please set RUSTFS_ENDPOINT, RUSTFS_ACCESS_KEY, and RUSTFS_SECRET_KEY"
             exit 1
           fi
           
-          # Function to upload a file to rustfs
+          # Function to upload a file to rustfs using AWS4-HMAC-SHA256 signature
           upload_file() {
             local file_path="$1"
             local file_name=$(basename "$file_path")
             
             echo "Uploading $file_path to rustfs bucket $RUSTFS_BUCKET"
             
-            # Try token-based authentication first (if token is provided)
-            if [ -n "$RUSTFS_TOKEN" ]; then
-              response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.txt \
-                --location --request PUT "$RUSTFS_ENDPOINT/$RUSTFS_BUCKET/$file_name" \
-                --header "Authorization: Bearer $RUSTFS_TOKEN" \
-                --header "Content-Type: application/octet-stream" \
-                --data-binary "@$file_path")
-            # Fall back to AWS-style signature if access key and secret key are provided
-            elif [ -n "$RUSTFS_ACCESS_KEY" ] && [ -n "$RUSTFS_SECRET_KEY" ]; then
-              # Create a simple signature (this is a basic implementation)
-              date_header=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
-              content_type="application/octet-stream"
-              string_to_sign="PUT\n\n$content_type\n$date_header\n/$RUSTFS_BUCKET/$file_name"
-              signature=$(echo -n "$string_to_sign" | openssl sha1 -hmac "$RUSTFS_SECRET_KEY" -binary | base64)
-              
-              response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.txt \
-                --location --request PUT "$RUSTFS_ENDPOINT/$RUSTFS_BUCKET/$file_name" \
-                --header "Date: $date_header" \
-                --header "Authorization: AWS $RUSTFS_ACCESS_KEY:$signature" \
-                --header "Content-Type: $content_type" \
-                --data-binary "@$file_path")
-            else
-              echo "Missing authentication credentials. Please provide either RUSTFS_TOKEN or both RUSTFS_ACCESS_KEY and RUSTFS_SECRET_KEY"
-              return 1
-            fi
+            # Get file content and calculate SHA256
+            content_sha256=$(openssl sha256 -hex < "$file_path" | cut -d ' ' -f 2)
+            content_length=$(stat -c %s "$file_path")
+            content_type="application/octet-stream"
+            
+            # Get current date and time in UTC
+            amz_date=$(date -u +"%Y%m%dT%H%M%SZ")
+            date_stamp=$(date -u +"%Y%m%d")
+            
+            # AWS4 signature calculation
+            region="cn-east-1"
+            service="s3"
+            algorithm="AWS4-HMAC-SHA256"
+            
+            # Create canonical request
+            canonical_uri="/$RUSTFS_BUCKET/$file_name"
+            canonical_query_string=""
+            # Note: Each header must be on its own line, and the whole block must end with a newline
+            canonical_headers="content-length:$content_length
+content-type:$content_type
+host:$(echo $RUSTFS_ENDPOINT | sed 's|http://||' | sed 's|https://||')
+x-amz-content-sha256:$content_sha256
+x-amz-date:$amz_date
+"
+            signed_headers="content-length;content-type;host;x-amz-content-sha256;x-amz-date"
+            canonical_request="PUT
+$canonical_uri
+$canonical_query_string
+$canonical_headers
+
+$signed_headers
+$content_sha256"
+            
+            # Create string to sign
+            credential_scope="$date_stamp/$region/$service/aws4_request"
+            string_to_sign="$algorithm
+$amz_date
+$credential_scope
+$(echo -n "$canonical_request" | openssl sha256 -hex | cut -d ' ' -f 2)"
+            
+            # Calculate signature
+            k_date=$(echo -n "$date_stamp" | openssl sha256 -binary -hmac "AWS4$RUSTFS_SECRET_KEY")
+            k_region=$(echo -n "$region" | openssl sha256 -binary -hmac "$k_date")
+            k_service=$(echo -n "$service" | openssl sha256 -binary -hmac "$k_region")
+            k_signing=$(echo -n "aws4_request" | openssl sha256 -binary -hmac "$k_service")
+            signature=$(echo -n "$string_to_sign" | openssl sha256 -binary -hmac "$k_signing" | xxd -p -c 256)
+            
+            # Create authorization header
+            authorization_header="$algorithm Credential=$RUSTFS_ACCESS_KEY/$credential_scope, SignedHeaders=$signed_headers, Signature=$signature"
+            
+            # Upload file using curl with AWS4 signature
+            response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.txt \
+              --location --request PUT "$RUSTFS_ENDPOINT/$RUSTFS_BUCKET/$file_name" \
+              --header "Content-Type: $content_type" \
+              --header "X-Amz-Content-Sha256: $content_sha256" \
+              --header "X-Amz-Date: $amz_date" \
+              --header "Authorization: $authorization_header" \
+              --data-binary "@$file_path")
             
             if [ "$response" -eq 200 ]; then
               echo "Successfully uploaded $file_name"

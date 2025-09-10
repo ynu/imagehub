@@ -46,12 +46,12 @@ To work with these diagrams locally:
 - Requires secrets configuration in the repository settings
 
 #### Authentication
-The workflow supports two authentication methods for rustfs:
-1. **Token-based authentication** (recommended): Set `RUSTFS_TOKEN` secret
-2. **AWS-style signature authentication**: Set both `RUSTFS_ACCESS_KEY` and `RUSTFS_SECRET_KEY` secrets
+The workflow uses AWS4-HMAC-SHA256 signature authentication as required by rustfs:
 
-Additionally, you must set:
-- `RUSTFS_ENDPOINT`: The base URL of your rustfs service
+You must set these secrets in your GitHub repository:
+- `RUSTFS_ENDPOINT`: The base URL of your rustfs service (e.g., http://12.34.56.78:9000)
+- `RUSTFS_ACCESS_KEY`: Your rustfs access key
+- `RUSTFS_SECRET_KEY`: Your rustfs secret key
 - `RUSTFS_BUCKET`: The bucket name (defaults to "itc")
 
 ## Architecture

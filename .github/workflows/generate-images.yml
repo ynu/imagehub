@@ -27,7 +27,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb
           wget https://github.com/jgraph/drawio-desktop/releases/download/v20.3.0/drawio-amd64-20.3.0.deb
-          sudo dpkg -i drawio-amd64-20.3.0.deb || sudo apt-get -f install -y || rm -rf drawio-amd64-20.3.0.deb
+          sudo dpkg -i drawio-amd64-20.3.0.deb || sudo apt-get -f install -y
+          sudo rm -rf drawio-amd64-20.3.0.deb
       
       - name: Generate images from Draw.io files
         run: |
