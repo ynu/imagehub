@@ -29,9 +29,10 @@ jobs:
           # Generate and set up Chinese locale
           sudo locale-gen zh_CN.UTF-8
           sudo update-locale LANG=zh_CN.UTF-8
-          wget https://github.com/jgraph/drawio-desktop/releases/download/v20.3.0/drawio-amd64-20.3.0.deb
-          sudo dpkg -i drawio-amd64-20.3.0.deb || sudo apt-get -f install -y
-          sudo rm -rf drawio-amd64-20.3.0.deb
+          export DRAWIO_VERSION=28.1.2
+          wget https://github.com/jgraph/drawio-desktop/releases/download/v$DRAWIO_VERSION/drawio-amd64-$DRAWIO_VERSION.deb
+          sudo dpkg -i drawio-amd64-$DRAWIO_VERSION.deb || sudo apt-get -f install -y
+          sudo rm -rf drawio-amd64-$DRAWIO_VERSION.deb
       
       - name: Generate images from Draw.IO files
         run: |
@@ -47,14 +48,18 @@ jobs:
             base_name="${file%.drawio}"
             
             # Generate PNG with better font support
-            xvfb-run -a drawio --export --format png --scale 2 --border 10 --font-family "Noto Sans CJK SC,WenQuanYi Zen Hei,DejaVu Sans" "$file" --output "${base_name}.drawio.png"
+            xvfb-run -a drawio --export --format png --scale 2 --border 10 "$file" --output "${base_name}.drawio.png"
             
             # Generate JPG with better font support
-            xvfb-run -a drawio --export --format jpg --scale 2 --border 10 --quality 80 --font-family "Noto Sans CJK SC,WenQuanYi Zen Hei,DejaVu Sans" "$file" --output "${base_name}.drawio.jpg"
+            xvfb-run -a drawio --export --format jpg --scale 2 --border 10 --quality 80 "$file" --output "${base_name}.drawio.jpg"
             
             # Generate SVG with better font support
-            xvfb-run -a drawio --export --format svg --border 10 --font-family "Noto Sans CJK SC,WenQuanYi Zen Hei,DejaVu Sans" "$file" --output "${base_name}.drawio.svg"
+            xvfb-run -a drawio --export --format svg --border 10 "$file" --output "${base_name}.drawio.svg"
+
           done
+
+          # List directory files
+          ls -lR .
       
       - name: Remove orphaned image files
         run: |
