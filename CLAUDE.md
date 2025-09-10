@@ -46,7 +46,7 @@ To work with these diagrams locally:
 - Requires secrets configuration in the repository settings
 
 #### Authentication
-The workflow uses AWS4-HMAC-SHA256 signature authentication as required by rustfs:
+The workflow uses AWS S3-compatible authentication with boto3:
 
 You must set these secrets in your GitHub repository:
 - `RUSTFS_ENDPOINT`: The base URL of your rustfs service (e.g., http://12.34.56.78:9000)

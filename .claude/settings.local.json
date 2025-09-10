@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(yamllint:*)",
-      "Bash(python -c:*)"
+      "Bash(python -c:*)",
+      "WebFetch(domain:docs.rustfs.com)",
+      "Bash(sed:*)"
     ],
     "deny": [],
     "ask": []
