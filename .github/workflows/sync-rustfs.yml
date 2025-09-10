@@ -1,0 +1,97 @@
+name: Sync to rustfs Storage
+
+on:
+  workflow_run:
+    workflows: ["Generate Draw.io Images"]
+    types:
+      - completed
+  workflow_dispatch:
+
+jobs:
+  sync-files:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq openssl
+      
+      - name: Sync files to rustfs
+        env:
+          RUSTFS_ENDPOINT: ${{ secrets.RUSTFS_ENDPOINT }}
+          RUSTFS_ACCESS_KEY: ${{ secrets.RUSTFS_ACCESS_KEY }}
+          RUSTFS_SECRET_KEY: ${{ secrets.RUSTFS_SECRET_KEY }}
+          RUSTFS_TOKEN: ${{ secrets.RUSTFS_TOKEN }}
+          RUSTFS_BUCKET: "itc"
+        run: |
+          # Check if required secrets are available
+          if [ -z "$RUSTFS_ENDPOINT" ]; then
+            echo "Missing required secret: RUSTFS_ENDPOINT"
+            exit 1
+          fi
+          
+          # Function to upload a file to rustfs
+          upload_file() {
+            local file_path="$1"
+            local file_name=$(basename "$file_path")
+            
+            echo "Uploading $file_path to rustfs bucket $RUSTFS_BUCKET"
+            
+            # Try token-based authentication first (if token is provided)
+            if [ -n "$RUSTFS_TOKEN" ]; then
+              response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.txt \
+                --location --request PUT "$RUSTFS_ENDPOINT/$RUSTFS_BUCKET/$file_name" \
+                --header "Authorization: Bearer $RUSTFS_TOKEN" \
+                --header "Content-Type: application/octet-stream" \
+                --data-binary "@$file_path")
+            # Fall back to AWS-style signature if access key and secret key are provided
+            elif [ -n "$RUSTFS_ACCESS_KEY" ] && [ -n "$RUSTFS_SECRET_KEY" ]; then
+              # Create a simple signature (this is a basic implementation)
+              date_header=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
+              content_type="application/octet-stream"
+              string_to_sign="PUT\n\n$content_type\n$date_header\n/$RUSTFS_BUCKET/$file_name"
+              signature=$(echo -n "$string_to_sign" | openssl sha1 -hmac "$RUSTFS_SECRET_KEY" -binary | base64)
+              
+              response=$(curl -s -w "%{http_code}" -o /tmp/upload_response.txt \
+                --location --request PUT "$RUSTFS_ENDPOINT/$RUSTFS_BUCKET/$file_name" \
+                --header "Date: $date_header" \
+                --header "Authorization: AWS $RUSTFS_ACCESS_KEY:$signature" \
+                --header "Content-Type: $content_type" \
+                --data-binary "@$file_path")
+            else
+              echo "Missing authentication credentials. Please provide either RUSTFS_TOKEN or both RUSTFS_ACCESS_KEY and RUSTFS_SECRET_KEY"
+              return 1
+            fi
+            
+            if [ "$response" -eq 200 ]; then
+              echo "Successfully uploaded $file_name"
+            else
+              echo "Failed to upload $file_name. HTTP status: $response"
+              echo "Response details:"
+              cat /tmp/upload_response.txt
+              return 1
+            fi
+          }
+          
+          # Upload all .drawio and generated image files
+          find . -name "*.drawio" -type f | while read file; do
+            upload_file "$file"
+            
+            # Upload corresponding generated files if they exist
+            base_name="${file%.drawio}"
+            for ext in "drawio.png" "drawio.jpg" "drawio.svg"; do
+              image_file="${base_name}.${ext}"
+              if [ -f "$image_file" ]; then
+                upload_file "$image_file"
+              fi
+            done
+          done
+          
+          echo "File sync completed"

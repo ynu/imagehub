@@ -1,0 +1,94 @@
+name: Generate Draw.io Images
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.drawio'
+  workflow_dispatch:
+
+jobs:
+  generate-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+      
+      - name: Install drawio-desktop
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          wget https://github.com/jgraph/drawio-desktop/releases/download/v20.3.0/drawio-amd64-20.3.0.deb
+          sudo dpkg -i drawio-amd64-20.3.0.deb || sudo apt-get -f install -y || rm -rf drawio-amd64-20.3.0.deb
+      
+      - name: Generate images from Draw.io files
+        run: |
+          # Find all .drawio files
+          find . -name "*.drawio" -type f | while read file; do
+            echo "Processing $file"
+            base_name="${file%.drawio}"
+            
+            # Generate PNG
+            xvfb-run -a drawio --export --format png --scale 2 --border 10 "$file" --output "${base_name}.drawio.png"
+            
+            # Generate JPG
+            xvfb-run -a drawio --export --format jpg --scale 2 --border 10 --quality 80 "$file" --output "${base_name}.drawio.jpg"
+            
+            # Generate SVG
+            xvfb-run -a drawio --export --format svg --border 10 "$file" --output "${base_name}.drawio.svg"
+          done
+      
+      - name: Remove orphaned image files
+        run: |
+          # Find and remove image files without corresponding .drawio files
+          find . -name "*.drawio.png" -type f | while read png_file; do
+            drawio_file="${png_file%.png}"
+            if [ ! -f "$drawio_file" ]; then
+              echo "Removing orphaned PNG: $png_file"
+              rm "$png_file"
+            fi
+          done
+          
+          find . -name "*.drawio.jpg" -type f | while read jpg_file; do
+            drawio_file="${jpg_file%.jpg}"
+            if [ ! -f "$drawio_file" ]; then
+              echo "Removing orphaned JPG: $jpg_file"
+              rm "$jpg_file"
+            fi
+          done
+          
+          find . -name "*.drawio.svg" -type f | while read svg_file; do
+            drawio_file="${svg_file%.svg}"
+            if [ ! -f "$drawio_file" ]; then
+              echo "Removing orphaned SVG: $svg_file"
+              rm "$svg_file"
+            fi
+          done
+      
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Add all changed files
+          git add -A
+          
+          # Check if there are changes to commit
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto-generate images from Draw.io files
+            
+            🤖 Generated with [Claude Code](https://claude.ai/code)
+            
+            Co-Authored-By: Claude <noreply@anthropic.com>"
+            git push
+          else
+            echo "No changes to commit"
+          fi
