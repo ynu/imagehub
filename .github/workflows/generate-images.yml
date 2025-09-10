@@ -22,29 +22,38 @@ jobs:
           distribution: 'temurin'
           java-version: '11'
       
-      - name: Install drawio-desktop
+      - name: Install drawio-desktop and Chinese fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb fonts-noto-cjk fonts-wqy-zenhei fonts-wqy-microhei locales
+          # Generate and set up Chinese locale
+          sudo locale-gen zh_CN.UTF-8
+          sudo update-locale LANG=zh_CN.UTF-8
           wget https://github.com/jgraph/drawio-desktop/releases/download/v20.3.0/drawio-amd64-20.3.0.deb
           sudo dpkg -i drawio-amd64-20.3.0.deb || sudo apt-get -f install -y
           sudo rm -rf drawio-amd64-20.3.0.deb
       
-      - name: Generate images from Draw.io files
+      - name: Generate images from Draw.IO files
         run: |
+          # Set font configuration for Chinese characters
+          export FONTCONFIG_PATH=/etc/fonts
+          export LANG=zh_CN.UTF-8
+          export LANGUAGE=zh_CN:zh
+          export LC_ALL=zh_CN.UTF-8
+          
           # Find all .drawio files
           find . -name "*.drawio" -type f | while read file; do
             echo "Processing $file"
             base_name="${file%.drawio}"
             
-            # Generate PNG
-            xvfb-run -a drawio --export --format png --scale 2 --border 10 "$file" --output "${base_name}.drawio.png"
+            # Generate PNG with better font support
+            xvfb-run -a drawio --export --format png --scale 2 --border 10 --font-family "Noto Sans CJK SC,WenQuanYi Zen Hei,DejaVu Sans" "$file" --output "${base_name}.drawio.png"
             
-            # Generate JPG
-            xvfb-run -a drawio --export --format jpg --scale 2 --border 10 --quality 80 "$file" --output "${base_name}.drawio.jpg"
+            # Generate JPG with better font support
+            xvfb-run -a drawio --export --format jpg --scale 2 --border 10 --quality 80 --font-family "Noto Sans CJK SC,WenQuanYi Zen Hei,DejaVu Sans" "$file" --output "${base_name}.drawio.jpg"
             
-            # Generate SVG
-            xvfb-run -a drawio --export --format svg --border 10 "$file" --output "${base_name}.drawio.svg"
+            # Generate SVG with better font support
+            xvfb-run -a drawio --export --format svg --border 10 --font-family "Noto Sans CJK SC,WenQuanYi Zen Hei,DejaVu Sans" "$file" --output "${base_name}.drawio.svg"
           done
       
       - name: Remove orphaned image files
