@@ -54,7 +54,7 @@ jobs:
             xvfb-run -a drawio --export --format jpg --scale 2 --border 10 --quality 80 "$file" --output "${base_name}.drawio.jpg"
             
             # Generate SVG with better font support
-            xvfb-run -a drawio --export --format svg --border 10 "$file" --output "${base_name}.drawio.svg"
+            xvfb-run -a drawio --export --format svg --embed-svg-images --border 10 "$file" --output "${base_name}.drawio.svg"
 
           done
 
